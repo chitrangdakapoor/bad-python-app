@@ -1,51 +1,26 @@
-name: Semgrep
-
 on:
-  pull_request:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
+  workflow_dispatch: {}
+  pull_request: {}
+  push:
+    branches:
+    - main
+    - master
+    paths:
+    - .github/workflows/semgrep.yml
+  schedule:
+  # random HH:MM to avoid a load spike on GitHub Actions at 00:00
+  - cron: 3 3 * * *
+name: Semgrep
 jobs:
   semgrep:
-    name: Semgrep scan
+    name: semgrep/ci
     runs-on: ubuntu-latest
-    container:
-      image: semgrep/semgrep:1.184.0
-    # Dependabot PRs have no access to secrets or code scanning uploads
-    if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
-      security-events: write
+    env:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+    container:
+      image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v4
-        with:
-          # Full history so Semgrep can compare against the base branch
-          fetch-depth: 0
-
-      - name: Run Semgrep
-        env:
-          # Optional: set this repo secret to report to the Semgrep AppSec Platform
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if [ -n "$SEMGREP_APP_TOKEN" ]; then
-            # Uses the rules configured in Semgrep; on PRs it reports only new findings
-            semgrep ci --sarif-output=semgrep.sarif
-          elif [ -n "$BASE_SHA" ]; then
-            # Fail the PR only on findings introduced by this PR, not existing ones
-            semgrep scan --config p/default --baseline-commit "$BASE_SHA" \
-              --sarif --output semgrep.sarif --error
-          else
-            # Manual run: scan the whole repo and report, without failing
-            semgrep scan --config p/default --sarif --output semgrep.sarif
-          fi
-
-      - name: Upload results to GitHub code scanning
-        # PRs from forks get a read-only token and cannot upload
-        if: always() && hashFiles('semgrep.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: semgrep.sarif
-          category: semgrep
+    - uses: actions/checkout@v6
+    - run: semgrep ci
